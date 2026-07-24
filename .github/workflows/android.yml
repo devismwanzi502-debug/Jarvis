@@ -1,4 +1,4 @@
-name: Android CI & APK Build
+Name: Android CI & APK Build
 
 on:
   push:
@@ -24,6 +24,11 @@ jobs:
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew || true
+
+    - name: Generate Debug Keystore
+      run: |
+        mkdir -p /home/runner/work/Jarvis/Jarvis/
+        keytool -genkey -v -keystore /home/runner/work/Jarvis/Jarvis/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android
 
     - name: Build Debug APK with Gradle
       run: ./gradlew assembleDebug --stacktrace || gradle assembleDebug --stacktrace
