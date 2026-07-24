@@ -1,6 +1,0 @@
-{
-  "name": "JARVIS-X",
-  "description": "Autonomous AI assistant for Android with voice control, background automations, notification auto-reply, and accessibility actions.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
