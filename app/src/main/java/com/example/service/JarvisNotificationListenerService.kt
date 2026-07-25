@@ -16,11 +16,13 @@ class JarvisNotificationListenerService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var repository: JarvisRepository
+    private lateinit var commandEngine: com.example.ai.LocalCommandEngine
 
     override fun onCreate() {
         super.onCreate()
         val db = JarvisDatabase.getDatabase(applicationContext)
         repository = JarvisRepository(db.automationDao(), db.executionLogDao(), db.memoryDao())
+        commandEngine = com.example.ai.LocalCommandEngine(applicationContext, repository)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -52,11 +54,16 @@ class JarvisNotificationListenerService : NotificationListenerService() {
                             title.contains(conditionText, ignoreCase = true)
 
                     if (appMatch && conditionMatch) {
-                        Log.i("JARVIS_AUTOMATION", "Trigger matched rule '${rule.title}' for $packageName")
-                        val replyText = rule.actionPayload ?: "I'm busy right now, I'll get back to you soon."
+                        Log.i("JARVIS_AUTOMATION", "Trigger matched rule '${rule.title}' for $packageName (Mode: ${rule.replyMode})")
                         
+                        val replyText = if (rule.replyMode == "CHATBOT_AI") {
+                            commandEngine.generateAiReply(text.ifBlank { title })
+                        } else {
+                            rule.actionPayload ?: "I'm busy right now, I'll get back to you soon."
+                        }
+
                         repository.logExecution(
-                            title = "Auto-Reply Triggered",
+                            title = "Auto-Reply Triggered (${rule.replyMode})",
                             description = "Replied to $title on $packageName: '$replyText'"
                         )
 

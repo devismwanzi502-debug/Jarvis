@@ -95,6 +95,52 @@ class JarvisAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * Performs a vertical swipe up gesture (e.g. scrolling TikTok videos / YouTube Shorts).
+     */
+    fun performSwipeUp(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            val displayMetrics = resources.displayMetrics
+            val width = displayMetrics.widthPixels
+            val height = displayMetrics.heightPixels
+
+            val path = android.graphics.Path().apply {
+                moveTo(width / 2f, height * 0.80f)
+                lineTo(width / 2f, height * 0.20f)
+            }
+
+            val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 300)
+            val gesture = android.accessibilityservice.GestureDescription.Builder().addStroke(stroke).build()
+            return dispatchGesture(gesture, null, null)
+        }
+        return false
+    }
+
+    /**
+     * Attempts to find and click a Like button or heart icon on screen.
+     */
+    fun findAndClickLikeButton(): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
+        val likeKeywords = listOf("like", "thumbs up", "favorite", "love", "heart", "like video", "like post")
+        for (keyword in likeKeywords) {
+            if (findAndClickNodeByText(keyword)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Finds search bar/icon, clicks it, and enters query text.
+     */
+    fun searchAndInputInActiveApp(queryText: String): Boolean {
+        val searchKeywords = listOf("search", "search youtube", "search videos", "type to search", "search or type url")
+        for (kw in searchKeywords) {
+            findAndClickNodeByText(kw)
+        }
+        return inputTextIntoFocusedField(queryText)
+    }
+
+    /**
      * Inputs text into the currently focused or first available editable field.
      */
     fun inputTextIntoFocusedField(textToInput: String): Boolean {
@@ -112,4 +158,5 @@ class JarvisAccessibilityService : AccessibilityService() {
     fun performGlobalBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
     fun performGlobalRecents(): Boolean = performGlobalAction(GLOBAL_ACTION_RECENTS)
 }
+
 

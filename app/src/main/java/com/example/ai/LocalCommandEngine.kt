@@ -7,27 +7,40 @@ import android.util.Log
 import com.example.BuildConfig
 import com.example.data.AutomationRule
 import com.example.data.JarvisRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class LocalCommandEngine(
     private val context: Context,
     private val repository: JarvisRepository
 ) {
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val systemPrompt = """
         You are JARVIS-X, an autonomous AI digital operator for Android.
         Parse the user's natural language command into a structured action response.
         Return ONLY valid JSON matching this exact structure:
         {
-          "actionType": "OPEN_APP" | "SEARCH_CHROME" | "SEND_MESSAGE" | "CREATE_BACKGROUND_RULE" | "GENERAL_RESPONSE",
-          "targetApp": "YouTube" | "Spotify" | "Chrome" | "WhatsApp" | "Instagram" | "Telegram" | null,
+          "actionType": "OPEN_APP" | "SEARCH_CHROME" | "SEND_MESSAGE" | "CREATE_BACKGROUND_RULE" | "EXECUTE_MACRO_SEQUENCE" | "GENERAL_RESPONSE",
+          "targetApp": "TikTok" | "YouTube" | "Spotify" | "Chrome" | "WhatsApp" | "Instagram" | "Telegram" | null,
           "query": "search phrase" | null,
           "messageText": "message body" | null,
           "recipient": "person or group name" | null,
           "triggerType": "NOTIFICATION_APP" | "POWER_CONNECTED" | "VOICE_KEYWORD" | null,
           "triggerCondition": "app or keyword condition" | null,
+          "replyMode": "SPECIFIC_TEXT" | "CHATBOT_AI",
           "speechResponse": "Concise voice confirmation string to say to user",
+          "macroSteps": [
+            {
+              "stepType": "OPEN_APP" | "SEARCH_INPUT" | "CLICK_TEXT" | "LIKE_POST" | "SWIPE_INTERVAL",
+              "target": "text or app name",
+              "intervalSeconds": 3,
+              "durationMinutes": 1
+            }
+          ],
           "requiresConfirmation": true | false
         }
     """.trimIndent()
@@ -35,6 +48,26 @@ class LocalCommandEngine(
     private fun getCustomApiKey(): String? {
         val prefs = context.getSharedPreferences("jarvis_settings", Context.MODE_PRIVATE)
         return prefs.getString("custom_gemini_api_key", null)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun generateAiReply(incomingMessage: String): String = withContext(Dispatchers.IO) {
+        val customApiKey = getCustomApiKey()
+        val apiKey = if (!customApiKey.isNullOrBlank()) customApiKey else BuildConfig.GEMINI_API_KEY
+        if (apiKey.isNull_or_blank_or_placeholder()) {
+            return@withContext "Thank you for your message! I'll respond shortly."
+        }
+        try {
+            val prompt = "You are JARVIS auto-reply assistant on Android. An incoming notification says: '$incomingMessage'. Generate a polite, brief, helpful reply message (under 15 words) to send back."
+            val request = GeminiRequest(
+                contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+                generationConfig = GeminiGenerationConfig(temperature = 0.3f)
+            )
+            val response = GeminiNetworkClient.api.generateContent(apiKey, request)
+            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text?.trim()
+                ?: "Thank you for your message! I'll get back to you soon."
+        } catch (e: Exception) {
+            "Thank you for your message! I'll respond as soon as possible."
+        }
     }
 
     suspend fun parseAndExecute(userPrompt: String): ActionPlan = withContext(Dispatchers.IO) {
@@ -84,6 +117,22 @@ class LocalCommandEngine(
                 ActionType.GENERAL_RESPONSE
             }
 
+            val stepsList = mutableListOf<MacroStep>()
+            val stepsArray = json.optJSONArray("macroSteps")
+            if (stepsArray != null) {
+                for (i in 0 until stepsArray.length()) {
+                    val stepObj = stepsArray.getJSONObject(i)
+                    stepsList.add(
+                        MacroStep(
+                            stepType = stepObj.optString("stepType", "OPEN_APP"),
+                            target = stepObj.optString("target").takeIf { it.isNotEmpty() && it != "null" },
+                            intervalSeconds = stepObj.optLong("intervalSeconds", 3),
+                            durationMinutes = stepObj.optLong("durationMinutes", 1)
+                        )
+                    )
+                }
+            }
+
             ActionPlan(
                 actionType = actionType,
                 targetApp = json.optString("targetApp").takeIf { it.isNotEmpty() && it != "null" },
@@ -92,7 +141,9 @@ class LocalCommandEngine(
                 recipient = json.optString("recipient").takeIf { it.isNotEmpty() && it != "null" },
                 triggerType = json.optString("triggerType").takeIf { it.isNotEmpty() && it != "null" },
                 triggerCondition = json.optString("triggerCondition").takeIf { it.isNotEmpty() && it != "null" },
+                replyMode = json.optString("replyMode", "SPECIFIC_TEXT"),
                 speechResponse = json.optString("speechResponse", "Command processed."),
+                macroSteps = stepsList,
                 requiresConfirmation = json.optBoolean("requiresConfirmation", false)
             )
         } catch (e: Exception) {
@@ -104,6 +155,45 @@ class LocalCommandEngine(
         val lower = prompt.lowercase()
 
         return when {
+            // TikTok / Shorts continuous interval loop command
+            (lower.contains("tiktok") || lower.contains("reels") || lower.contains("shorts")) &&
+                    (lower.contains("minute") || lower.contains("interval") || lower.contains("play") || lower.contains("swipe")) -> {
+                val appName = if (lower.contains("tiktok")) "TikTok" else if (lower.contains("reels")) "Instagram" else "YouTube"
+                val interval = if (lower.contains("3 second") || lower.contains("three second")) 3L else 4L
+                val minutes = if (lower.contains("30 minute") || lower.contains("thirty minute")) 30L else 5L
+
+                val steps = listOf(
+                    MacroStep(stepType = "OPEN_APP", target = appName),
+                    MacroStep(stepType = "SWIPE_INTERVAL", target = appName, intervalSeconds = interval, durationMinutes = minutes)
+                )
+
+                ActionPlan(
+                    actionType = ActionType.EXECUTE_MACRO_SEQUENCE,
+                    targetApp = appName,
+                    speechResponse = "Opening $appName and starting automated video playback for $minutes minutes with $interval-second intervals.",
+                    macroSteps = steps
+                )
+            }
+            // YouTube / App search, open first post, like command
+            (lower.contains("youtube") || lower.contains("open")) && (lower.contains("search for") || lower.contains("search")) && lower.contains("like") -> {
+                val queryText = prompt.substringAfter("search for", "").substringAfter("search", "").substringBefore("and").trim()
+                val targetQuery = if (queryText.isNotBlank()) queryText else "Dylan Page"
+
+                val steps = listOf(
+                    MacroStep(stepType = "OPEN_APP", target = "YouTube"),
+                    MacroStep(stepType = "SEARCH_INPUT", target = targetQuery),
+                    MacroStep(stepType = "CLICK_TEXT", target = targetQuery),
+                    MacroStep(stepType = "LIKE_POST")
+                )
+
+                ActionPlan(
+                    actionType = ActionType.EXECUTE_MACRO_SEQUENCE,
+                    targetApp = "YouTube",
+                    query = targetQuery,
+                    speechResponse = "Opening YouTube, searching for $targetQuery, opening post and applying like.",
+                    macroSteps = steps
+                )
+            }
             lower.contains("every time") || lower.contains("whenever") || lower.contains("auto-reply") || lower.contains("automatically") -> {
                 val app = when {
                     lower.contains("whatsapp") -> "WhatsApp"
@@ -113,6 +203,8 @@ class LocalCommandEngine(
                     else -> "Messaging App"
                 }
                 val triggerType = if (lower.contains("charger") || lower.contains("plug")) "POWER_CONNECTED" else "NOTIFICATION_APP"
+                val isChatbot = lower.contains("chatbot") || lower.contains("ai") || lower.contains("smart")
+                val replyMode = if (isChatbot) "CHATBOT_AI" else "SPECIFIC_TEXT"
                 val replyMsg = if (lower.contains("busy")) "I'm busy right now, I'll reply later." else "Thank you for your message!"
 
                 ActionPlan(
@@ -121,8 +213,9 @@ class LocalCommandEngine(
                     triggerType = triggerType,
                     triggerCondition = app.lowercase(),
                     messageText = replyMsg,
-                    speechResponse = "Created persistent automation rule for $app.",
-                    automationTitle = "Automation: $app ($triggerType)"
+                    replyMode = replyMode,
+                    speechResponse = "Created persistent $replyMode automation rule for $app.",
+                    automationTitle = "Automation: $app ($triggerType - $replyMode)"
                 )
             }
             lower.contains("search") || lower.contains("google") || lower.contains("chrome") -> {
@@ -194,10 +287,11 @@ class LocalCommandEngine(
                         actionType = "AUTO_REPLY_NOTIFICATION",
                         actionTargetApp = plan.targetApp,
                         actionPayload = plan.messageText ?: "I'll reply shortly.",
+                        replyMode = plan.replyMode,
                         isEnabled = true
                     )
                 )
-                repository.logExecution("Automation Rule Created", "Configured trigger for ${plan.targetApp}")
+                repository.logExecution("Automation Rule Created", "Configured ${plan.replyMode} trigger for ${plan.targetApp}")
             }
             ActionType.SEND_MESSAGE -> {
                 val targetPkg = getPackageNameForApp(plan.targetApp)
@@ -217,6 +311,46 @@ class LocalCommandEngine(
                 }
                 repository.logExecution("Send Message", "Sent '${plan.messageText}' to ${plan.recipient} via ${plan.targetApp}")
             }
+            ActionType.EXECUTE_MACRO_SEQUENCE -> {
+                val targetPkg = getPackageNameForApp(plan.targetApp)
+                openAppOrSearchStore(targetPkg, plan.targetApp)
+                repository.logExecution("Macro Sequence Started", "Executing ${plan.macroSteps.size} automated steps for ${plan.targetApp}")
+
+                val accService = com.example.service.JarvisAccessibilityService.instance
+                if (accService != null) {
+                    engineScope.launch(Dispatchers.Main) {
+                        kotlinx.coroutines.delay(3500) // Wait for app to open
+                        for (step in plan.macroSteps) {
+                            when (step.stepType) {
+                                "SEARCH_INPUT" -> {
+                                    val query = step.target ?: plan.query ?: ""
+                                    accService.searchAndInputInActiveApp(query)
+                                    kotlinx.coroutines.delay(2000)
+                                }
+                                "CLICK_TEXT" -> {
+                                    val text = step.target ?: plan.query ?: ""
+                                    accService.findAndClickNodeByText(text)
+                                    kotlinx.coroutines.delay(2500)
+                                }
+                                "LIKE_POST" -> {
+                                    accService.findAndClickLikeButton()
+                                    kotlinx.coroutines.delay(1000)
+                                }
+                                "SWIPE_INTERVAL" -> {
+                                    val intervalMs = (step.intervalSeconds * 1000).coerceAtLeast(1000)
+                                    val iterations = ((step.durationMinutes * 60) / step.intervalSeconds).coerceAtMost(600) // cap to 10 mins or 600 swipes for UI performance
+                                    for (i in 0 until iterations) {
+                                        accService.performSwipeUp()
+                                        kotlinx.coroutines.delay(intervalMs)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    repository.logExecution("Macro Service Note", "Enable Accessibility Service in Settings for automated clicks & swiping.")
+                }
+            }
             ActionType.NAVIGATE_AND_CLICK -> {
                 val packageName = getPackageNameForApp(plan.targetApp)
                 openAppOrSearchStore(packageName, plan.targetApp)
@@ -227,6 +361,7 @@ class LocalCommandEngine(
             }
         }
     }
+
 
     private fun openAppOrSearchStore(packageName: String?, appName: String?) {
         val pm = context.packageManager

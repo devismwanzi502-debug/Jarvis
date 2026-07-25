@@ -306,11 +306,11 @@ fun CommandAgentView(
         // Quick Command Shortcuts
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            QuickChip("Open YouTube", onClick = { onQuickCommand("Open YouTube") })
-            QuickChip("Reply DM auto", onClick = { onQuickCommand("Every time I receive an Instagram DM respond politely and tell them I'll reply later.") })
-            QuickChip("Search Chrome", onClick = { onQuickCommand("Open Chrome and search best Android coding tutorials") })
+            QuickChip("TikTok 30m Swipe", onClick = { onQuickCommand("Open TikTok for 30 minutes and play videos for a 3-second interval") })
+            QuickChip("YouTube Like", onClick = { onQuickCommand("Open YouTube search for Dylan Page open his first post and like it") })
+            QuickChip("AI Auto-Reply", onClick = { onQuickCommand("Whenever I receive a WhatsApp message auto-reply using AI Chatbot") })
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -517,7 +517,7 @@ fun AutomationsView(
                                     fontSize = 12.sp
                                 )
                                 Text(
-                                    text = "Action Payload: ${rule.actionPayload ?: "N/A"}",
+                                    text = "Mode: ${rule.replyMode} | Payload: ${if (rule.replyMode == "CHATBOT_AI") "Gemini AI Dynamic Response" else (rule.actionPayload ?: "N/A")}",
                                     color = TextSecondary,
                                     fontSize = 12.sp
                                 )

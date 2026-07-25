@@ -46,6 +46,8 @@ class MainActivity : ComponentActivity() {
         // Start Foreground Service
         startJarvisForegroundService()
 
+        intent?.let { handleWakeIntent(it) }
+
         setContent {
             JarvisTheme {
                 Surface(color = DarkBackground) {
@@ -53,6 +55,18 @@ class MainActivity : ComponentActivity() {
                     MainScreen(viewModel = viewModel, uiState = uiState)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleWakeIntent(intent)
+    }
+
+    private fun handleWakeIntent(intent: Intent) {
+        if (intent.getBooleanExtra("EXTRA_START_VOICE", false)) {
+            viewModel.processUserCommand("Hey Jarvis")
         }
     }
 

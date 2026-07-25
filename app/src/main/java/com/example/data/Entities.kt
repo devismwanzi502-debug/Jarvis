@@ -13,6 +13,7 @@ data class AutomationRule(
     val actionType: String, // AUTO_REPLY_NOTIFICATION, OPEN_APP, EXECUTE_VOICE_COMMAND, SPEAK_TEXT
     val actionTargetApp: String? = null, // e.g. "com.spotify.music"
     val actionPayload: String? = null, // e.g. "I'm busy right now, talk later!"
+    val replyMode: String = "SPECIFIC_TEXT", // SPECIFIC_TEXT or CHATBOT_AI
     val isEnabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
 )
