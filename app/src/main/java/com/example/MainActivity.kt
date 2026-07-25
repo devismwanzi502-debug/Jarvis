@@ -83,9 +83,6 @@ class MainActivity : ComponentActivity() {
 
     private fun requestRequiredPermissions() {
         val permissions = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(android.Manifest.permission.RECORD_AUDIO)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)

@@ -18,10 +18,13 @@ class LocalCommandEngine(
     private val repository: JarvisRepository
 ) {
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val conversationHistory = mutableListOf<String>()
 
     private val systemPrompt = """
-        You are JARVIS-X, an autonomous AI digital operator for Android.
+        You are JARVIS-X, an advanced autonomous AI digital operator for Android. You have full root-like access and control over the user's phone via Accessibility APIs.
+        The user has authorized you to do everything. You must be highly intelligent, execute complex and long prompts, and remember the context of the task.
         Parse the user's natural language command into a structured action response.
+        If the user gives a conversational or follow-up instruction, use the memory context to understand it.
         Return ONLY valid JSON matching this exact structure:
         {
           "actionType": "OPEN_APP" | "SEARCH_CHROME" | "SEND_MESSAGE" | "CREATE_BACKGROUND_RULE" | "EXECUTE_MACRO_SEQUENCE" | "GENERAL_RESPONSE",
@@ -44,6 +47,7 @@ class LocalCommandEngine(
           "requiresConfirmation": true | false
         }
         IMPORTANT: If the user asks to search for something IN a specific app (like YouTube, TikTok, etc.), you MUST set actionType to "EXECUTE_MACRO_SEQUENCE" and provide macroSteps (e.g. OPEN_APP, then SEARCH_INPUT). Do NOT use "SEARCH_CHROME" unless they explicitly want a web/Google search.
+        Design macro sequences meticulously for complex tasks to ensure they are robust and long-running if requested.
     """.trimIndent()
 
     private fun getCustomApiKey(): String? {
@@ -95,8 +99,19 @@ class LocalCommandEngine(
     }
 
     private suspend fun fetchGeminiPlan(userPrompt: String, apiKey: String): ActionPlan {
+        conversationHistory.add("User: $userPrompt")
+        if (conversationHistory.size > 10) {
+            conversationHistory.removeAt(0)
+        }
+
+        val historyContext = if (conversationHistory.size > 1) {
+            "Recent conversation history:\n" + conversationHistory.dropLast(1).joinToString("\n") + "\n\nCurrent Command:\n$userPrompt"
+        } else {
+            userPrompt
+        }
+
         val request = GeminiRequest(
-            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = userPrompt)))),
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = historyContext)))),
             systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = systemPrompt))),
             generationConfig = GeminiGenerationConfig(temperature = 0.1f, responseMimeType = "application/json")
         )
@@ -134,6 +149,9 @@ class LocalCommandEngine(
                 }
             }
 
+            val speechResponse = json.optString("speechResponse", "Command processed.")
+            conversationHistory.add("JARVIS: $speechResponse")
+
             ActionPlan(
                 actionType = actionType,
                 targetApp = json.optString("targetApp").takeIf { it.isNotEmpty() && it != "null" },
@@ -143,7 +161,7 @@ class LocalCommandEngine(
                 triggerType = json.optString("triggerType").takeIf { it.isNotEmpty() && it != "null" },
                 triggerCondition = json.optString("triggerCondition").takeIf { it.isNotEmpty() && it != "null" },
                 replyMode = json.optString("replyMode", "SPECIFIC_TEXT"),
-                speechResponse = json.optString("speechResponse", "Command processed."),
+                speechResponse = speechResponse,
                 macroSteps = stepsList,
                 requiresConfirmation = json.optBoolean("requiresConfirmation", false)
             )
@@ -176,22 +194,31 @@ class LocalCommandEngine(
                 )
             }
             // YouTube / App search, open first post, like command
-            (lower.contains("youtube") || lower.contains("open")) && (lower.contains("search for") || lower.contains("search")) && lower.contains("like") -> {
+            (lower.contains("youtube") || lower.contains("open")) && (lower.contains("search for") || lower.contains("search")) -> {
                 val queryText = prompt.substringAfter("search for", "").substringAfter("search", "").substringBefore("and").trim()
                 val targetQuery = if (queryText.isNotBlank()) queryText else "Dylan Page"
+                
+                val appName = when {
+                    lower.contains("tiktok") -> "TikTok"
+                    lower.contains("instagram") -> "Instagram"
+                    else -> "YouTube"
+                }
 
-                val steps = listOf(
-                    MacroStep(stepType = "OPEN_APP", target = "YouTube"),
+                val steps = mutableListOf(
+                    MacroStep(stepType = "OPEN_APP", target = appName),
                     MacroStep(stepType = "SEARCH_INPUT", target = targetQuery),
-                    MacroStep(stepType = "CLICK_TEXT", target = targetQuery),
-                    MacroStep(stepType = "LIKE_POST")
+                    MacroStep(stepType = "CLICK_TEXT", target = targetQuery)
                 )
+                
+                if (lower.contains("like")) {
+                    steps.add(MacroStep(stepType = "LIKE_POST"))
+                }
 
                 ActionPlan(
                     actionType = ActionType.EXECUTE_MACRO_SEQUENCE,
-                    targetApp = "YouTube",
+                    targetApp = appName,
                     query = targetQuery,
-                    speechResponse = "Opening YouTube, searching for $targetQuery, opening post and applying like.",
+                    speechResponse = "Opening $appName, searching for $targetQuery.",
                     macroSteps = steps
                 )
             }
