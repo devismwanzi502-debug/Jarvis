@@ -80,6 +80,21 @@ class JarvisForegroundService : Service() {
 
     private fun startHotwordListener() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return
+
+        val hasAudioPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!hasAudioPermission) {
+            Log.w("JARVIS_SERVICE", "RECORD_AUDIO permission not granted yet. Waiting before starting SpeechRecognizer...")
+            serviceScope.launch(Dispatchers.Main) {
+                kotlinx.coroutines.delay(5000)
+                startHotwordListener()
+            }
+            return
+        }
+
         serviceScope.launch(Dispatchers.Main) {
             try {
                 speechRecognizer?.destroy()
@@ -124,6 +139,12 @@ class JarvisForegroundService : Service() {
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
                 speechRecognizer?.startListening(intent)
+            } catch (e: SecurityException) {
+                Log.e("JARVIS_SERVICE", "SecurityException starting SpeechRecognizer: ${e.message}")
+                serviceScope.launch(Dispatchers.Main) {
+                    kotlinx.coroutines.delay(5000)
+                    startHotwordListener()
+                }
             } catch (e: Exception) {
                 Log.e("JARVIS_SERVICE", "Hotword listener error: ${e.message}")
             }
