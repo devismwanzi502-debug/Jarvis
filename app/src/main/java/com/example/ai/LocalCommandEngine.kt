@@ -43,6 +43,7 @@ class LocalCommandEngine(
           ],
           "requiresConfirmation": true | false
         }
+        IMPORTANT: If the user asks to search for something IN a specific app (like YouTube, TikTok, etc.), you MUST set actionType to "EXECUTE_MACRO_SEQUENCE" and provide macroSteps (e.g. OPEN_APP, then SEARCH_INPUT). Do NOT use "SEARCH_CHROME" unless they explicitly want a web/Google search.
     """.trimIndent()
 
     private fun getCustomApiKey(): String? {
